@@ -1,0 +1,61 @@
+name: Apply Beta terrain generator
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Replace terrain generator
+        shell: python
+        run: |
+          from pathlib import Path
+          import re
+
+          p = Path('index.html')
+          s = p.read_text(encoding='utf-8')
+          if 'class BetaPerlin' in s:
+              print('Beta terrain already applied')
+              raise SystemExit(0)
+
+          new = r'''const key=(x,y,z)=>x+','+y+','+z,get=(x,y,z)=>world.get(key(x,y,z))||0;
+class BetaRandom{constructor(seed){this.mask=(1n<<48n)-1n;this.s=(BigInt(seed)^0x5DEECE66Dn)&this.mask}next(bits){this.s=(this.s*25214903917n+11n)&this.mask;return Number(this.s>>BigInt(48-bits))}nextInt(n){if(n<=0)throw new Error('bound');if((n&(n-1))===0)return Math.floor(n*this.next(31)/2147483648);let bits,val;do{bits=this.next(31);val=bits%n}while(bits-val+(n-1)<0);return val}nextDouble(){return(this.next(26)*67108864+this.next(27))/9007199254740992}}
+class BetaPerlin{constructor(r){this.x=r.nextDouble()*256;this.y=r.nextDouble()*256;this.z=r.nextDouble()*256;this.p=new Int32Array(512);for(let i=0;i<256;i++)this.p[i]=i;for(let i=0;i<256;i++){const j=r.nextInt(256-i)+i,t=this.p[i];this.p[i]=this.p[j];this.p[j]=t;this.p[i+256]=this.p[i]}}noise(x,y,z){x+=this.x;y+=this.y;z+=this.z;const fx=Math.floor(x),fy=Math.floor(y),fz=Math.floor(z),X=fx&255,Y=fy&255,Z=fz&255;x-=fx;y-=fy;z-=fz;const u=x*x*x*(x*(x*6-15)+10),v=y*y*y*(y*(y*6-15)+10),w=z*z*z*(z*(z*6-15)+10),A=this.p[X]+Y,AA=this.p[A]+Z,AB=this.p[A+1]+Z,B=this.p[X+1]+Y,BA=this.p[B]+Z,BB=this.p[B+1]+Z;const g=(h,a,b,c)=>{switch(h&15){case 0:return a+b;case 1:return-a+b;case 2:return a-b;case 3:return-a-b;case 4:return a+c;case 5:return-a+c;case 6:return a-c;case 7:return-a-c;case 8:return b+c;case 9:return-b+c;case 10:return b-c;case 11:return-b-c;case 12:return b+a;case 13:return-b+a;case 14:return b-a;default:return-b-a}},L=(a,b,t)=>a+t*(b-a);return L(L(L(g(this.p[AA],x,y,z),g(this.p[BA],x-1,y,z),u),L(g(this.p[AB],x,y-1,z),g(this.p[BB],x-1,y-1,z),u),v),L(L(g(this.p[AA+1],x,y,z-1),g(this.p[BA+1],x-1,y,z-1),u),L(g(this.p[AB+1],x,y-1,z-1),g(this.p[BB+1],x-1,y-1,z-1),u),v),w)}}
+class BetaOctaves{constructor(r,n){this.g=Array.from({length:n},()=>new BetaPerlin(r))}generate(x,y,z,sx,sy,sz,nx,ny,nz){const out=new Float64Array(nx*ny*nz),tmp=new Float64Array(nx*ny*nz);let amp=1;for(const g of this.g){let bx=x*amp*sx,bz=z*amp*sz;const fx=Math.floor(bx),fz=Math.floor(bz);bx=bx-fx+(fx%16777216);bz=bz-fz+(fz%16777216);let i=0;for(let ix=0;ix<nx;ix++)for(let iz=0;iz<nz;iz++)for(let iy=0;iy<ny;iy++){tmp[i++]=g.noise(bx+ix*amp*sx,y*amp*sy+iy*amp*sy,bz+iz*amp*sz)}for(let j=0;j<out.length;j++)out[j]+=tmp[j]*amp;amp*=.5}return out}}
+const betaRand=new BetaRandom(seed),betaLow=new BetaOctaves(betaRand,16),betaHigh=new BetaOctaves(betaRand,16),betaSelector=new BetaOctaves(betaRand,8);new BetaOctaves(betaRand,4);const betaContinental=new BetaOctaves(betaRand,10),betaDepth=new BetaOctaves(betaRand,16);new BetaOctaves(betaRand,8);
+function betaTerrainField(cx,cz){const X=cx*4,Z=cz*4,N=betaContinental.generate(X,0,Z,1.121,1,1.121,5,1,5),D=betaDepth.generate(X,0,Z,200,1,200,5,1,5),S=betaSelector.generate(X,0,Z,684.412/80,684.412/160,684.412/80,5,33,5),L=betaLow.generate(X,0,Z,684.412,684.412,684.412,5,33,5),H=betaHigh.generate(X,0,Z,684.412,684.412,684.412,5,33,5),q=new Float64Array(825);let l=0;for(let x=0;x<5;x++)for(let z=0;z<5;z++){let continental=(N[x*5+z]+256)/512;const climate=1-Math.pow(1-(.4*.8),4);continental*=climate;if(continental>1)continental=1;if(continental<0)continental=0;continental+=.5;let depth=D[x*5+z]/8000;if(depth<0)depth=-depth*.3;depth=depth*3-2;if(depth<0){depth/=2;if(depth<-1)depth=-1;depth/=1.4;depth/=2;continental=0}else{if(depth>1)depth=1;depth/=8}depth=depth*33/16;const elevation=16.5+depth*4;for(let y=0;y<33;y++){let off=(y-elevation)*12/continental;if(off<0)off*=4;const low=L[l]/512,high=H[l]/512,sel=(S[l]/10+1)/2;let density=sel<0?low:sel>1?high:low+(high-low)*sel;density-=off;if(y>29){const fade=(y-29)/3;density=density*(1-fade)-10*fade}q[l++]=density}}return q}
+function betaSurfaceHeight(q,x,z){const gx=x>>2,gz=z>>2,fx=(x&3)/4,fz=(z&3)/4;let top=1;for(let y=0;y<32;y+=1){const fy=(y%8)/8,gy=Math.floor(y/8),idx=(gx*5+gz)*33+gy;const a=q[idx],b=q[(gx+1)*5*33+gz*33+gy],c=q[gx*5*33+(gz+1)*33+gy],d=q[(gx+1)*5*33+(gz+1)*33+gy],ab=a+(b-a)*fx,cd=c+(d-c)*fx,v=ab+(cd-ab)*fz;const idx2=idx+1,a2=q[idx2],b2=q[(gx+1)*5*33+gz*33+gy+1],c2=q[gx*5*33+(gz+1)*33+gy+1],d2=q[(gx+1)*5*33+(gz+1)*33+gy+1],ab2=a2+(b2-a2)*fx,cd2=c2+(d2-c2)*fx,v2=ab2+(cd2-ab2)*fz,density=v+(v2-v)*fy;if(density>0)top=Math.min(127,y*8+Math.floor(fy*8)+1)}return top}
+function betaDensity(q,x,y,z){const gx=x>>2,gz=z>>2,fx=(x&3)/4,fz=(z&3)/4,gy=Math.floor(y/8),fy=(y&7)/8,idx=(gx*5+gz)*33+gy,a=q[idx],b=q[(gx+1)*5*33+gz*33+gy],c=q[gx*5*33+(gz+1)*33+gy],d=q[(gx+1)*5*33+(gz+1)*33+gy],ab=a+(b-a)*fx,cd=c+(d-c)*fx,v0=ab+(cd-ab)*fz,idx2=idx+1,a2=q[idx2],b2=q[(gx+1)*5*33+gz*33+gy+1],c2=q[gx*5*33+(gz+1)*33+gy+1],d2=q[(gx+1)*5*33+(gz+1)*33+gy+1],ab2=a2+(b2-a2)*fx,cd2=c2+(d2-c2)*fx,v1=ab2+(cd2-ab2)*fz;return v0+(v1-v0)*fy}
+function height(x,z){for(let y=127;y>0;y--)if(get(x,y,z))return y;return 1}
+function genChunk(cx,cz){const ck=cx+','+cz;if(chunks.has(ck))return;const q=betaTerrainField(cx,cz);for(let x=0;x<CHUNK;x++)for(let z=0;z<CHUNK;z++){const wx=cx*CHUNK+x,wz=cz*CHUNK+z;for(let y=0;y<=127;y++){const density=betaDensity(q,x,y,z);if(density>0)world.set(key(wx,y,wz),y===0?7:1)}const h=height(wx,wz);if(h>0){world.set(key(wx,h,wz),2);for(let d=1;d<=3&&h-d>0;d++)world.set(key(wx,h-d,wz),3)}if(hash(wx*3,wz*7)>.965&&h>8){for(let y=1;y<=4;y++)world.set(key(wx,h+y,wz),17);for(let dx=-2;dx<=2;dx++)for(let dz=-2;dz<=2;dz++)for(let dy=3;dy<=5;dy++)if(Math.abs(dx)+Math.abs(dz)+Math.abs(dy-4)<5)world.set(key(wx+dx,h+dy,wz+dz),18)}}chunks.set(ck,[])}'''
+
+          pattern = r"const key=\(x,y,z\)=>x\+','\+y\+','\+z,get=\(x,y,z\)=>world\.get\(key\(x,y,z\)\)\|\|0;function hash.*?function genChunk\(cx,cz\)\{.*?\nconst solid="
+          replacement = new + "\nconst solid="
+          s2,n = re.subn(pattern,replacement,s,flags=re.S)
+          if n != 1:
+              raise SystemExit(f'generator replacement count={n}')
+
+          s2=s2.replace("const blocks={0:{solid:false,tile:0},", "const blocks={0:{solid:false,tile:0},9:{solid:false,tile:0,liquid:true,name:'Agua'},")
+          s2=s2.replace("const solid=b=>blocks[b]?.solid===true,exposed=(x,y,z)=>!solid(get(x,y,z)),cube=", "const solid=b=>blocks[b]?.solid===true,exposed=(x,y,z)=>!solid(get(x,y,z))&&get(x,y,z)!==9,cube=")
+          s2=s2.replace("for(let y=0;y<=64;y++){const b=get(x,y,z);if(!solid(b))continue;", "for(let y=0;y<=127;y++){const b=get(x,y,z);if(!solid(b))continue;")
+          s2=s2.replace("for(let x=a*CHUNK;x<a*CHUNK+CHUNK;x++)for(let z=b*CHUNK;z<b*CHUNK+CHUNK;z++)for(let y=0;y<=64;y++)world.delete", "for(let x=a*CHUNK;x<a*CHUNK+CHUNK;x++)for(let z=b*CHUNK;z<b*CHUNK+CHUNK;z++)for(let y=0;y<=127;y++)world.delete")
+          s2=s2.replace("if(density>0)world.set(key(wx,y,wz),y===0?7:1)", "if(density>0)world.set(key(wx,y,wz),y===0?7:1)")
+          p.write_text(s2,encoding='utf-8')
+          print('Beta terrain generator applied')
+      - name: Commit terrain generator
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.html
+          git diff --cached --quiet && exit 0
+          git commit -m "Implement Beta 1.7.3 Perlin terrain generation"
+          git push
+      - name: Remove one-shot workflow
+        if: success()
+        run: |
+          git rm .github/workflows/apply-beta-terrain.yml
+          git commit -m "Remove one-shot terrain migration workflow"
+          git push
